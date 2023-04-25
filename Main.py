@@ -17,7 +17,7 @@ def get_degree(days_range):
 
 
 def get_stock_data(stock_symbol, start_date, end_date):
-    stock_data = yf.download(stock_symbol, start=start_date, end=end_date)
+    stock_data = yf.download(stock_symbol, start=start_date, end=end_date, progress=True)
     stock_data.fillna(method='ffill', inplace=True)
     return stock_data['Adj Close']
 
@@ -43,8 +43,14 @@ def evaluate_trend(poly, x):
 
 
 def main():
+    test_back = 0
     stock_symbol = input("Enter the stock symbol: ").upper()
     days_range = int(input("Enter the range of days to look back (10-1000): "))
+    more_options = input("Enter anything to be prompted with more settings: ")
+    if more_options != "":
+        test_back = int(input("Enter a number of days ago to start the test: "))
+        prediction_date = int(input("enter how many days past the period you want to assess the accuracy of the trend from: "))
+
     degree = get_degree(days_range)
 
     end_date = datetime.today().strftime('%Y-%m-%d')
@@ -65,7 +71,7 @@ def main():
     y_trend = poly(x)
     y_tangent = tangent_line(slope, x, y_intercept)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(stock_data.index, stock_data, label="Actual Prices")
     ax.plot(stock_data.index, y_trend, label="Least Squares Polynomial")
     ax.plot(stock_data.index[(days_range // 3) + 1:], y_tangent[(days_range // 3) + 1:], label="Trend Line",
@@ -73,28 +79,37 @@ def main():
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     ax.set_xlabel("Date")
     ax.set_ylabel("Price")
-    correct_trend_rate = back_test(stock_symbol, days_range)
-    ax.set_title(f"{stock_symbol} Stock Price Trend\nTrend: {trend}, Strength: {np.abs(strength):.2f}, Accuracy: {correct_trend_rate}")
+    if more_options != "":
+        correct_trend_rate, avg_strength, avg_incorrect_strength = back_test(stock_symbol, days_range, test_back, prediction_date)
+    else:
+        correct_trend_rate, avg_strength, avg_incorrect_strength = back_test(stock_symbol, days_range)
 
+    ax.set_title(
+        f"{stock_symbol} Stock Price Trend\nTrend: {trend}, Strength: {np.abs(strength):.2f}, Accuracy: {correct_trend_rate:.2f}, \n Avg Strength of Correct Predictions: {avg_strength:.2f}, Avg Strength of Incorrect Predictions: {avg_incorrect_strength:.2f}")
 
     ax.legend()
     fig.autofmt_xdate()
     plt.show()
 
-def back_test(stock_symbol, days_range):
+def back_test(stock_symbol, days_range, test_back=1, prediction_date=1):
     correct_trend = 0
     incorrect_trend = 0
+    correct_strengths = []
+    incorrect_strengths = []
 
-    for i in range(10):
-        end_date = (datetime.today() - timedelta(days=i * days_range)).strftime('%Y-%m-%d')
+    for i in range(50):
+        end_date = (datetime.today() - timedelta(days=i*5 +test_back)).strftime('%Y-%m-%d')
         start_date = (datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=days_range)).strftime('%Y-%m-%d')
         #print(end_date)
         #print(start_date)
+        #print(start_date)
         stock_data = get_stock_data(stock_symbol, start_date, end_date)
-        end_date2 = (datetime.today() - timedelta(days=i * days_range)).strftime('%Y-%m-%d')
-        start_date2 = (datetime.strptime(end_date2,'%Y-%m-%d') - timedelta(days= days_range)).strftime('%Y-%m-%d')
-        end_date2 = (datetime.strptime(end_date2,'%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
-
+        end_date2 = (datetime.today() - timedelta(days=i*5 + test_back)).strftime('%Y-%m-%d')
+        start_date2 = (datetime.strptime(end_date2,'%Y-%m-%d') - timedelta(days=days_range)).strftime('%Y-%m-%d')
+        end_date2 = (datetime.strptime(end_date2,'%Y-%m-%d') + timedelta(days=prediction_date)).strftime('%Y-%m-%d')
+        #print(start_date2)
+        #print(end_date)
+        #print(end_date2)
         stock_data2 = get_stock_data(stock_symbol, start_date2, end_date2)
         if len(stock_data) == 0:
             continue
@@ -105,23 +120,25 @@ def back_test(stock_symbol, days_range):
         poly = least_squares_polynomial(x, y, get_degree(days_range))
         trend, strength = evaluate_trend(poly, x)
 
-        #print(stock_data2[-1], stock_data[-1])
-        if stock_data2[-1] > stock_data[0] and trend == "Up":
+        if stock_data2[-1] > stock_data[-1] and trend == "Up":
             correct_trend += 1
-        elif stock_data2[-1] < stock_data[0] and trend == "Down":
+            correct_strengths.append(abs(strength))
+        elif stock_data2[-1] < stock_data[-1] and trend == "Down":
             correct_trend += 1
+            correct_strengths.append(abs(strength))
         else:
             incorrect_trend += 1
+            incorrect_strengths.append(abs(strength))
 
     if correct_trend + incorrect_trend > 0:
         correct_trend_rate = correct_trend / (correct_trend + incorrect_trend)
     else:
         correct_trend_rate = 1.0
 
-    print(f"Correct trend rate: {correct_trend_rate:.2f}")
-    print(f"Correct trend predictions: {correct_trend}")
-    print(f"Incorrect trend predictions: {incorrect_trend}")
-    return correct_trend_rate
+    avg_strength = np.mean(correct_strengths) if correct_strengths else 0
+    average_incorrect_strength = np.mean(incorrect_strengths) if incorrect_strengths else 0
+
+    return correct_trend_rate, abs(avg_strength), abs(average_incorrect_strength)
 
 
 main()
